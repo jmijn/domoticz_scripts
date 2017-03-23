@@ -14,7 +14,7 @@
 -- You will find the geolocation after the @ symbol in the url.
 --
 -- In Domotics create new hardware of type Dummy if you don't already
--- have it. After that, create a new virtual sensor, type = 'tekst'. In
+-- have it. After that, create a new virtual sensor, type = 'waarschuwing'. In
 -- 'apparaten' you will find this new device. The number in the 'Idx'
 -- column is your virtual_device_index.
 --
@@ -23,7 +23,7 @@
 --
 -- (c) 2017 Johnny Mijnhout
 
-commandArray={}
+------------ EDIT THESE SETTINGS TO YOUR PERSONAL VALUES ----------------------------
 
 -- location coordinates (for example 12.3456,65.4321)
 home_coordinates = "<-- your home geo location -->"
@@ -55,6 +55,11 @@ max_work_home_minutes = 60
 home_name = "huis"
 work_name = "werk"
 
+------------------------ END SETTINGS -----------------------------------------------
+
+-- init commandArray
+commandArray = {}
+
 -- check if a message has been sent
 message_sent = tonumber(uservariables[user_variable_name])
 
@@ -69,13 +74,11 @@ end
 if time_object.hour >= home_hour_start and time_object.hour <= home_hour_end then
   origin_coordinates      = home_coordinates
   destination_coordinates = work_coordinates
-  origin_name             = home_name
   destination_name        = work_name
   max_travel_minutes      = max_home_work_minutes
 elseif time_object.hour >= work_hour_start and time_object.hour <= work_hour_end then
   origin_coordinates      = work_coordinates
   destination_coordinates = home_coordinates
-  origin_name             = work_name
   destination_name        = home_name
   max_travel_minutes      = max_work_home_minutes
 else
@@ -90,29 +93,43 @@ end
 json = (loadfile "/home/pi/domoticz/scripts/lua/JSON.lua")()
 
 -- get traffic data from Google Directions API
-jsondata = assert(io.popen("curl 'https://maps.googleapis.com/maps/api/directions/json?origin="..origin_coordinates.."&destination="..destination_coordinates.."&departure_time=now&key="..google_api_key.."'"))
-jsondevices = jsondata:read("*all")
-jsondata:close()
-gmaps = json:decode(jsondevices)
+json_data  = assert(io.popen("curl 'https://maps.googleapis.com/maps/api/directions/json?origin="..origin_coordinates.."&destination="..destination_coordinates.."&departure_time=now&key="..google_api_key.."'"))
+json_table = json_data:read("*all")
+json_data:close()
+gmaps      = json:decode(json_table)
 
 -- Read from the data table
-distance_km = math.ceil(gmaps.routes[1].legs[1].distance.value/1000)
+distance_km      = math.ceil(gmaps.routes[1].legs[1].distance.value/1000)
 duration_minutes = math.ceil(gmaps.routes[1].legs[1].duration_in_traffic.value/60)
-summary_text = gmaps.routes[1].summary
+summary_text     = gmaps.routes[1].summary
+
+-- calculate delay
+delay_minutes    = duration_minutes - max_travel_minutes
+if delay_minutes < 0 then
+  delay_minutes = 0
+end
 
 -- translate summary text
 summary_text = string.gsub(summary_text, "and", "en")
 
 -- create string with travel information
-travel_text = tostring(duration_minutes).." min reistijd van "..tostring(origin_name).." naar "..tostring(destination_name).." ("..tostring(distance_km).." km), via "..tostring(summary_text)
+travel_text = tostring(duration_minutes).." min reistijd naar "..tostring(destination_name).." ("..tostring(distance_km).." km), via "..tostring(summary_text)
 
 -- set message to be pushed and stored
-if duration_minutes > max_travel_minutes then
+if delay_minutes > 0 then
   message = "FILE! "..travel_text
   -- if no message has been sent, send out the notification
   if message_sent == 0 then
     commandArray["SendNotification"] = message
     commandArray["Variable:"..user_variable_name] = "1"
+  end
+  -- set alert status
+  if delay_minutes > 30 then
+      alert_status = 4
+  elseif delay_minutes > 15 then
+      alert_status = 3
+  elseif delay_minutes > 0 then
+      alert_status = 2
   end
 else
   message = "Weg is vrij, "..travel_text
@@ -121,12 +138,14 @@ else
     commandArray["SendNotification"] = message
     commandArray["Variable:"..user_variable_name] = "0"
   end
+  --reset alert status
+  alert_status = 1
 end
 -- append time to message
 message = message.." (update "..tostring(os.date("%H:%M"))..")"
 
--- update virtual device text
-commandArray["UpdateDevice"] = virtual_device_index.."|0|"..tostring(message)
+-- update virtual device alert + counter
+commandArray['UpdateDevice'] = virtual_device_index.."|"..alert_status.."|"..tostring(message)
 
 ::done::
 return commandArray

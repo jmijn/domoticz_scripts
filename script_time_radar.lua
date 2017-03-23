@@ -5,7 +5,7 @@
 -- send out a notification.
 --
 -- In Domotics create new hardware of type Dummy if you don't already
--- have it. After that, create a new virtual sensor, type = 'tekst'. In
+-- have it. After that, create a new virtual sensor, type = 'waarschuwing'. In
 -- 'apparaten' you will find this new device. The number in the 'Idx'
 -- column is your virtual_device_index.
 --
@@ -14,7 +14,7 @@
 --
 -- (c) 2017 Johnny Mijnhout
 
-commandArray={}
+------------ EDIT THESE SETTINGS TO YOUR PERSONAL VALUES ----------------------------
 
 -- road names to check, enclosed and separated by pipe symbols(for example |A1|A201|)
 roads="<-- your road list -->"
@@ -33,6 +33,11 @@ home_hour_start = 7
 home_hour_end   = 9
 work_hour_start = 15
 work_hour_end   = 17
+
+------------------------ END SETTINGS -----------------------------------------------
+
+-- init commandArray
+commandArray = {}
 
 -- check if a message has been sent
 message_sent = tonumber(uservariables[user_variable_name])
@@ -56,28 +61,34 @@ end
 json = (loadfile "/home/pi/domoticz/scripts/lua/JSON.lua")()
 
 -- set defaults
-message     = ""
-radar_found = false
+message      = ""
+total_radars = 0
 
 -- get data from ANWB
-jsondata    = assert(io.popen("curl 'https://www.anwb.nl/feeds/gethf'"))
-jsondevices = jsondata:read("*all")
-jsondata:close()
-anwb = json:decode(jsondevices)
+json_data   = assert(io.popen("curl 'https://www.anwb.nl/feeds/gethf'"))
+json_table  = json_data:read("*all")
+json_data:close()
+anwb = json:decode(json_table)
 for k, v in pairs(anwb.roadEntries) do
   road = tostring(v.road)
   if string.match(roads,"|"..road.."|") then
     radar_number = # v.events.radars
     if radar_number > 0 then
-      radar_found = true
       message = message..tostring(radar_number).." flitser(s) op de "..road.."! "
+      total_radars = total_radars + radar_number
     end
   end
 end
 
 -- if no radars are found, set this in the message
-if not radar_found then
+if total_radars == 0 then
   message = "Geen flitsers gevonden op de "..string.sub(string.gsub(roads, "|", ", "), 3, -3)
+end
+
+-- set alert status
+alert_status = total_radars + 1
+if alert_status > 4 then
+  alert_status = 4
 end
 
 -- append time to message
@@ -90,7 +101,7 @@ if radar_found and message_sent == 0 then
 end
 
 -- update virtual device text
-commandArray["UpdateDevice"] = virtual_device_index.."|0|"..tostring(message)
+commandArray["UpdateDevice"] = virtual_device_index.."|"..alert_status.."|"..tostring(message)
 
 ::done::
 return commandArray
