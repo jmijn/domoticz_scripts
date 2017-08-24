@@ -45,7 +45,7 @@ message_sent = tonumber(uservariables[user_variable_name])
 -- only run this script every x minutes on week days
 day_number  = tonumber(os.date("%w"))
 time_object = os.date("*t")
-if time_object.min % check_internal_minutes > 0 or day_number >= 6 then
+if time_object.min % check_internal_minutes > 0 or day_number == 0 or day_number == 6 then
   goto done
 end
 
