@@ -95,7 +95,7 @@ end
 message = message.." (update "..tostring(os.date("%H:%M"))..")"
 
 -- send message if radars are found
-if radar_found and message_sent == 0 then
+if total_radars > 0 and message_sent == 0 then
     commandArray["SendNotification"] = message
     commandArray["Variable:"..user_variable_name] = "1"
 end
